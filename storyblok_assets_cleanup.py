@@ -165,13 +165,7 @@ def _extract_storyblok_urls(data):
     return urls
 
 
-def get_html_referenced_assets(max_pages=None, start_page=1):
-    stories = get_all_paginated(
-        '/stories',
-        item_name='stories',
-        max_pages=max_pages,
-        start_page=start_page,
-    )
+def get_html_referenced_assets_from_stories(stories):
     referenced_urls = set()
 
     for story in stories:
@@ -337,7 +331,23 @@ def _main():
         for folder in all_folders
     }
 
-    html_referenced_assets = get_html_referenced_assets(max_pages=max_story_pages, start_page=1)
+    stories_cache_path = path.join(cache_directory, f'{space_id}_stories.json')
+
+    if path.exists(stories_cache_path) and use_cache:
+        all_stories = load_json(stories_cache_path)
+    else:
+        all_stories = get_all_paginated(
+            '/stories',
+            item_name='stories',
+            max_pages=max_story_pages,
+            start_page=1,
+        )
+        save_json(stories_cache_path, all_stories)
+
+    html_referenced_assets = {
+        url.split('?', 1)[0]
+        for url in get_html_referenced_assets_from_stories(all_stories)
+    }
 
     def get_folder_path_name(folder_id):
         if folder_id not in folder_ids_to_folder:
@@ -389,8 +399,7 @@ def _main():
             continue
 
         clean_url = asset['filename'].split('?', 1)[0]
-        asset['html_in_use'] = clean_url in html_referenced_assets
-        asset['is_in_use'] = asset['html_in_use'] or is_asset_in_use(asset)
+        asset['is_in_use'] = clean_url in html_referenced_assets
         asset['to_be_deleted'] = False
 
         count += 1
