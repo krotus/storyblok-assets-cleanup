@@ -399,7 +399,8 @@ def _main():
             continue
 
         clean_url = asset['filename'].split('?', 1)[0]
-        asset['is_in_use'] = clean_url in html_referenced_assets
+        asset['html_in_use'] = clean_url in html_referenced_assets
+        asset['is_in_use'] = asset['html_in_use'] or is_asset_in_use(asset)
         asset['to_be_deleted'] = False
 
         count += 1

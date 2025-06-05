@@ -12,6 +12,7 @@ Features:
 - Find assets without references;
 - Detect assets referenced directly within HTML fields;
 - Cache pages to avoid repeated API calls when checking asset usage;
+- Cross-check asset references through Storyblok's API when not found in HTML;
 - Output a summary of file to be deleted, grouped by folder;
 - Perform a backup of assets before deletion;
 
