@@ -3,6 +3,7 @@
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import os
 from os import getenv, makedirs, path
@@ -72,10 +73,17 @@ def download_asset(asset_url, target_file_path, continue_download_on_failure):
         msg = f'Failed to download asset {asset_url}. HTTP status code: {response.status_code}'
 
         if continue_download_on_failure:
-            print(msg + '. Continuing with the next asset due to --continue-download-on-failure flag.')
+            print(
+                msg +
+                '. Continuing with the next asset due to '
+                '--continue-download-on-failure flag.'
+            )
         else:
             print(msg + '. Stopping the download process.')
-            raise RuntimeError(msg + '. Use --continue-download-on-failure to ignore this error and continue.')
+            raise RuntimeError(
+                msg +
+                '. Use --continue-download-on-failure to ignore this error and continue.'
+            )
 
 
 def get_all_paginated(path, item_name, params={}, max_pages=None, start_page=1):
@@ -137,6 +145,41 @@ def is_asset_in_use(asset):
     stories = response.json()['stories']
 
     return len(stories) != 0
+
+
+ASSET_URL_PATTERN = re.compile(r"https://[^\s\"'>]+\.storyblok\.com/[^\s\"'>]+")
+
+
+def _extract_storyblok_urls(data):
+    urls = set()
+
+    if isinstance(data, dict):
+        for value in data.values():
+            urls.update(_extract_storyblok_urls(value))
+    elif isinstance(data, list):
+        for item in data:
+            urls.update(_extract_storyblok_urls(item))
+    elif isinstance(data, str):
+        urls.update(re.findall(ASSET_URL_PATTERN, data))
+
+    return urls
+
+
+def get_html_referenced_assets(max_pages=None, start_page=1):
+    stories = get_all_paginated(
+        '/stories',
+        item_name='stories',
+        max_pages=max_pages,
+        start_page=start_page,
+    )
+    referenced_urls = set()
+
+    for story in stories:
+        content = story.get('content')
+        if content:
+            referenced_urls.update(_extract_storyblok_urls(content))
+
+    return referenced_urls
 
 
 def _main():
@@ -239,6 +282,15 @@ def _main():
         default=1,
         help='Start page to proceed. If not set, first page will be processed.',
     )
+    parser.add_argument(
+        '--max-story-pages',
+        type=int,
+        default=None,
+        help=(
+            'Maximum number of story pages to process when searching HTML. '
+            'If not set, all pages will be processed.'
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -254,6 +306,7 @@ def _main():
     backup_directory = args.backup_directory
     max_pages = args.max_pages
     start_page = args.start_page
+    max_story_pages = args.max_story_pages
     assets_cache_path = path.join(cache_directory, f'{space_id}_assets.json')
     asset_folder_cache_path = path.join(cache_directory, f'{space_id}_asset_folders.json')
 
@@ -265,7 +318,12 @@ def _main():
     if path.exists(assets_cache_path) and use_cache:
         all_assets = load_json(assets_cache_path)
     else:
-        all_assets = get_all_paginated('/assets', item_name='assets', max_pages=max_pages, start_page=start_page)
+        all_assets = get_all_paginated(
+            '/assets',
+            item_name='assets',
+            max_pages=max_pages,
+            start_page=start_page,
+        )
         save_json(assets_cache_path, all_assets)
 
     if path.exists(asset_folder_cache_path) and use_cache:
@@ -278,6 +336,8 @@ def _main():
         folder['id']: folder
         for folder in all_folders
     }
+
+    html_referenced_assets = get_html_referenced_assets(max_pages=max_story_pages, start_page=1)
 
     def get_folder_path_name(folder_id):
         if folder_id not in folder_ids_to_folder:
@@ -304,13 +364,19 @@ def _main():
         if blacklisted_asset_folder_paths:
             for blacklisted_path in blacklisted_asset_folder_paths:
                 if blacklisted_path and blacklisted_path in asset_path_name:
-                    print(f'Skipping asset ID {id} as its path {asset_path_name} is blacklisted due to the path: "{blacklisted_path}"')
+                    print(
+                        f'Skipping asset ID {id} as its path {asset_path_name} '
+                        f'is blacklisted due to the path: "{blacklisted_path}"'
+                    )
                     return False
 
         if blacklisted_asset_filename_words:
             for blacklisted_word in blacklisted_asset_filename_words:
                 if blacklisted_word and blacklisted_word.lower() in filename.lower():
-                    print(f'Skipping asset ID {id} as its filename "{filename}" contains blacklisted word: "{blacklisted_word}"')
+                    print(
+                        f'Skipping asset ID {id} as its filename "{filename}" '
+                        f'contains blacklisted word: "{blacklisted_word}"'
+                    )
                     return False
 
         return True
@@ -322,7 +388,9 @@ def _main():
         if 'is_in_use' in asset:
             continue
 
-        asset['is_in_use'] = is_asset_in_use(asset)
+        clean_url = asset['filename'].split('?', 1)[0]
+        asset['html_in_use'] = clean_url in html_referenced_assets
+        asset['is_in_use'] = asset['html_in_use'] or is_asset_in_use(asset)
         asset['to_be_deleted'] = False
 
         count += 1
@@ -363,9 +431,15 @@ def _main():
             total_size_to_delete += asset_size
             total_count_to_delete += 1
         else:
-            print(f"Asset ID {id} will not be deleted. Either in use, blacklisted, or an error occurred.")
+            print(
+                f"Asset ID {id} will not be deleted. Either in use, "
+                "blacklisted, or an error occurred."
+            )
 
-        not_in_use_count, to_be_deleted_count = folder_path_names_to_item_counts.get(asset_path_name, (0, 0))
+        not_in_use_count, to_be_deleted_count = folder_path_names_to_item_counts.get(
+            asset_path_name,
+            (0, 0),
+        )
         folder_path_names_to_item_counts[asset_path_name] = (
             not_in_use_count + 1,
             to_be_deleted_count + (1 if asset['to_be_deleted'] else 0)
@@ -403,7 +477,10 @@ def _main():
 
     print()
 
-    print(f'\nTotal size to be freed: {total_size_to_delete} bytes ({total_size_to_delete / (1024*1024):.2f} MB)')
+    print(
+        f'\nTotal size to be freed: {total_size_to_delete} bytes '
+        f'({total_size_to_delete / (1024*1024):.2f} MB)'
+    )
     print(f'Total count to be deleted: {total_count_to_delete} assets\n')
 
     if should_delete_images:
@@ -428,7 +505,12 @@ def _main():
         if backup_assets and asset.get('to_be_deleted'):
             print(f'Starting backup process for asset ID {id}, filename: {filename}')
             if 'backed_up_to' not in asset or asset['backed_up_to'] is None:
-                file_path = path.join(backup_directory, space_id, asset_path_name.lstrip('/'), filename)
+                file_path = path.join(
+                    backup_directory,
+                    space_id,
+                    asset_path_name.lstrip('/'),
+                    filename,
+                )
                 try:
                     download_asset(asset["filename"], file_path, continue_download_on_failure)
                     asset['backed_up_to'] = file_path
@@ -436,7 +518,10 @@ def _main():
                 except Exception as e:
                     print(f'Error during backup of asset ID {id}, filename: {filename}. Error: {e}')
             else:
-                print(f'Asset ID {id}, filename: {filename} has already been backed up to {asset["backed_up_to"]}')
+                print(
+                    f'Asset ID {id}, filename: {filename} has already been '
+                    f'backed up to {asset["backed_up_to"]}'
+                )
 
         if should_delete_images and asset.get('to_be_deleted'):
             print(f'Attempting to delete asset ID {id}, filename: {filename}')
@@ -447,7 +532,10 @@ def _main():
             else:
                 print(f'Failed to delete asset ID {id}. HTTP status code: {response.status_code}')
         else:
-            print(f'Would attempt to delete asset ID {id}, filename: {filename} if --delete was specified')
+            print(
+                f'Would attempt to delete asset ID {id}, filename: {filename} '
+                'if --delete was specified'
+            )
 
         if backup_assets or should_delete_images:
             save_json(assets_cache_path, all_assets)

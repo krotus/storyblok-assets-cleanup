@@ -10,6 +10,7 @@ storyblok-assets-cleanup is an utility to find and delete unused assets
 Features:
 
 - Find assets without references;
+- Detect assets referenced directly within HTML fields;
 - Output a summary of file to be deleted, grouped by folder;
 - Perform a backup of assets before deletion;
 
@@ -76,7 +77,9 @@ options:
   --max-pages        MAX_PAGES
                         Maximum number of pages to process. If not set, all pages will be processed.
   --start-page       START_PAGE
-                        Start page to proceed. If not set, first page will be processed.                      
+                        Start page to proceed. If not set, first page will be processed.
+  --max-story-pages  MAX_STORY_PAGES
+                        Maximum number of story pages to process when searching HTML. If not set, all pages will be processed.
 ```
 
 ## Development
