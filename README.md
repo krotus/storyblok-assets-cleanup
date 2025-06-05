@@ -76,6 +76,8 @@ options:
                         Backup directory, defaults to ./assets_backup.
   --max-pages        MAX_PAGES
                         Maximum number of pages to process. If not set, all pages will be processed.
+  --max-assets       MAX_ASSETS
+                        Maximum number of assets to process. If not set, all assets will be processed.
   --start-page       START_PAGE
                         Start page to proceed. If not set, first page will be processed.
   --max-story-pages  MAX_STORY_PAGES
@@ -90,5 +92,5 @@ options:
 Then you are ready to run script with `docker run -it -v $(pwd)/backups:/app/assets_backup storyblok-cleanup`.
 Example:
 ```shell
-docker run -it -v $(pwd)/backups:/app/assets_backup storyblok-cleanup --delete --backup --space-id XXXXX --token XXXX --max-pages=10
+docker run -it -v $(pwd)/backups:/app/assets_backup storyblok-cleanup --delete --backup --space-id XXXXX --token XXXX --max-pages=10 --max-assets=500
 ```
