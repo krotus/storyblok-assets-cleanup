@@ -86,12 +86,23 @@ def download_asset(asset_url, target_file_path, continue_download_on_failure):
             )
 
 
-def get_all_paginated(path, item_name, params={}, max_pages=None, start_page=1):
+def get_all_paginated(
+    path,
+    item_name,
+    params={},
+    max_pages=None,
+    start_page=1,
+    max_items=None,
+):
     page = start_page
     all_items = []
     pages_processed = 0
 
-    while page is not None and (max_pages is None or pages_processed < max_pages):
+    while (
+        page is not None
+        and (max_pages is None or pages_processed < max_pages)
+        and (max_items is None or len(all_items) < max_items)
+    ):
         print(f'Getting {path}, page={page}')
 
         params = {
@@ -119,7 +130,16 @@ def get_all_paginated(path, item_name, params={}, max_pages=None, start_page=1):
 
         new_items = response_data[item_name]
 
-        page = None if len(new_items) < int(params['per_page']) else page + 1
+        if max_items is not None:
+            remaining = max_items - len(all_items)
+            new_items = new_items[:remaining]
+
+        if len(new_items) < int(params['per_page']) or (
+            max_items is not None and len(all_items) + len(new_items) >= max_items
+        ):
+            page = None
+        else:
+            page += 1
 
         all_items.extend(new_items)
         pages_processed += 1
@@ -277,6 +297,12 @@ def _main():
         help='Maximum number of pages to process. If not set, all pages will be processed.',
     )
     parser.add_argument(
+        '--max-assets',
+        type=int,
+        default=None,
+        help='Maximum number of assets to process. If not set, all assets will be processed.',
+    )
+    parser.add_argument(
         '--start-page',
         type=int,
         default=1,
@@ -305,6 +331,7 @@ def _main():
     cache_directory = args.cache_directory
     backup_directory = args.backup_directory
     max_pages = args.max_pages
+    max_assets = args.max_assets
     start_page = args.start_page
     max_story_pages = args.max_story_pages
     assets_cache_path = path.join(cache_directory, f'{space_id}_assets.json')
@@ -317,12 +344,15 @@ def _main():
 
     if path.exists(assets_cache_path) and use_cache:
         all_assets = load_json(assets_cache_path)
+        if max_assets is not None:
+            all_assets = all_assets[:max_assets]
     else:
         all_assets = get_all_paginated(
             '/assets',
             item_name='assets',
             max_pages=max_pages,
             start_page=start_page,
+            max_items=max_assets,
         )
         save_json(assets_cache_path, all_assets)
 
